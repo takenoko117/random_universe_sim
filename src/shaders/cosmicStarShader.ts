@@ -97,21 +97,21 @@ export const cosmicStarVertexShader = /* glsl */ `
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
 
-    // サイズアッテネーション (視認性と美しさの最適化)
+    // サイズアッテネーション (2,800銀河・280,000星の遠景きらめき最適化)
     float dist = length(mvPosition.xyz);
-    float pointSize = aSize * (360.0 / dist);
+    float pointSize = aSize * (380.0 / dist);
 
     if (aClusterType > 1.5) {
-      // 遠方超銀河団は遠景で美しくきらめく
-      pointSize = max(1.8, pointSize * 1.8);
-      vAlpha = clamp(0.3 + (dist / 850.0) * 0.65, 0.25, 0.95);
+      // 遠方超銀河団・ディープフィールド (深宇宙で美しく輝く)
+      pointSize = max(1.8, pointSize * 1.7);
+      vAlpha = clamp(0.35 + (dist / 1600.0) * 0.55, 0.3, 0.95);
     } else if (aClusterType > 0.5) {
-      // 周囲の銀河
-      pointSize = max(1.5, pointSize * 1.4);
-      vAlpha = clamp(1.1 - (dist / 1100.0), 0.35, 1.0);
+      // 中遠景の多様な銀河群
+      pointSize = max(1.5, pointSize * 1.35);
+      vAlpha = clamp(1.15 - (dist / 1800.0), 0.35, 1.0);
     } else {
       // 主銀河
-      vAlpha = clamp(1.2 - (dist / 950.0), 0.4, 1.0);
+      vAlpha = clamp(1.2 - (dist / 1400.0), 0.4, 1.0);
     }
 
     gl_PointSize = clamp(pointSize, 1.2, 50.0);
