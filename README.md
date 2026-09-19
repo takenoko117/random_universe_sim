@@ -1,6 +1,11 @@
 # Multiverse Creator (マルチバース・クリエイター)
 ### 宇宙の30大ハイパーパラメータ・多元宇宙シミュレーションゲーム
 
+[![Deploy to GitHub Pages](https://github.com/takenoko117/random_universe_sim/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/takenoko117/random_universe_sim/actions/workflows/deploy-pages.yml)
+
+🌐 **ブラウザで今すぐプレイ (GitHub Pages)**: [https://takenoko117.github.io/random_universe_sim/](https://takenoko117.github.io/random_universe_sim/)  
+📦 **GitHub リポジトリ**: [https://github.com/takenoko117/random_universe_sim](https://github.com/takenoko117/random_universe_sim)
+
 素粒子物理学の標準模型および宇宙論の標準模型において、未だその値の起源が解明されていない**約30種類のハイパーパラメータ（物理定数・結合定数・宇宙論密度など）**をランダムまたは手動で改変し、マルチバース（多元宇宙）仮説のもとで誕生する宇宙の運命や生命誕生の可能性をシミュレートするインタラクティブ・サイエンスゲームです。
 
 ---
