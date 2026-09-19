@@ -1,7 +1,7 @@
-// 多元宇宙5秒シームレス自動遷移ツアー・カスタムフック
+// 多元宇宙5秒シームレス自動遷移ツアー・カスタムフック (バグ修正 & 堅牢化版)
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { UNIVERSE_PRESETS } from '../data/presets';
-import { DEFAULT_PARAMETERS } from '../data/parameters';
+import { DEFAULT_PARAMETERS, PHYSICS_PARAMETERS } from '../data/parameters';
 import { soundSystem } from '../audio/soundSystem';
 import type { ParameterValues, UniverseSimulationResult } from '../types/physics';
 import { evaluateUniverse } from '../engine/physicsEvaluator';
@@ -21,6 +21,7 @@ export interface MultiverseTourState {
 }
 
 const CYCLE_DURATION_MS = 5000; // 5秒サイクル
+const ALL_PARAM_KEYS = PHYSICS_PARAMETERS.map((p) => p.id);
 
 /**
  * 2つのパラメータ値を対数空間でスムーズステップ補間 (Smoothstep Lerp in Log-space)
@@ -59,6 +60,20 @@ export function useMultiverseTour(
   const [tourRemainingSeconds, setTourRemainingSeconds] = useState(5.0);
   const [currentPresetIndex, setCurrentPresetIndex] = useState(0);
 
+  // 外部からの更新・コールバックへの参照（依存配列を空にして再レンダリングループを防ぐ）
+  const currentParametersRef = useRef<ParameterValues>(currentParameters);
+  const setParametersRef = useRef(setParameters);
+  const recordToHistoryRef = useRef(recordToHistory);
+
+  useEffect(() => {
+    setParametersRef.current = setParameters;
+  }, [setParameters]);
+
+  useEffect(() => {
+    recordToHistoryRef.current = recordToHistory;
+  }, [recordToHistory]);
+
+  // アニメーション制御用 ref
   const isTourActiveRef = useRef(false);
   const fromParamsRef = useRef<ParameterValues>({ ...currentParameters });
   const targetParamsRef = useRef<ParameterValues>({ ...currentParameters });
@@ -67,25 +82,21 @@ export function useMultiverseTour(
   const presetIndexRef = useRef(0);
 
   // プリセット名
-  const currentPresetName = UNIVERSE_PRESETS[presetIndexRef.current]?.name || 'カスタム宇宙';
-  const nextIndex = (presetIndexRef.current + 1) % UNIVERSE_PRESETS.length;
-  const nextPresetName = UNIVERSE_PRESETS[nextIndex]?.name || '我々の宇宙';
+  const currentPresetName = UNIVERSE_PRESETS[currentPresetIndex]?.name || '我々の宇宙';
+  const nextIndex = (currentPresetIndex + 1) % UNIVERSE_PRESETS.length;
+  const nextPresetName = UNIVERSE_PRESETS[nextIndex]?.name || '次の宇宙';
 
   // 次のプリセットへの遷移を設定
-  const setupNextPreset = useCallback((nextIdx: number, fromCurrent: boolean = true) => {
-    presetIndexRef.current = nextIdx;
-    setCurrentPresetIndex(nextIdx);
+  const setupPresetTarget = useCallback((targetIdx: number) => {
+    presetIndexRef.current = targetIdx;
+    setCurrentPresetIndex(targetIdx);
 
-    const targetPreset = UNIVERSE_PRESETS[nextIdx];
+    const targetPreset = UNIVERSE_PRESETS[targetIdx];
     targetParamsRef.current = expandPresetParams(targetPreset.params);
-
-    if (fromCurrent) {
-      fromParamsRef.current = { ...currentParameters };
-    }
     cycleStartTimeRef.current = performance.now();
-  }, [currentParameters]);
+  }, []);
 
-  // アニメーションループ
+  // アニメーションループ: isTourActive の切り替え時のみ起動・停止
   useEffect(() => {
     if (!isTourActive) {
       if (animFrameIdRef.current) {
@@ -95,7 +106,12 @@ export function useMultiverseTour(
       return;
     }
 
+    isTourActiveRef.current = true;
+    cycleStartTimeRef.current = performance.now();
+
     const animateTour = (timestamp: number) => {
+      if (!isTourActiveRef.current) return;
+
       if (!cycleStartTimeRef.current) {
         cycleStartTimeRef.current = timestamp;
       }
@@ -112,37 +128,41 @@ export function useMultiverseTour(
       const toP = targetParamsRef.current;
       const interpolated: ParameterValues = {};
 
-      const allKeys = Array.from(new Set([...Object.keys(fromP), ...Object.keys(toP)]));
-      for (const k of allKeys) {
+      for (const k of ALL_PARAM_KEYS) {
         const valFrom = fromP[k] !== undefined ? fromP[k] : 1.0;
         const valTo = toP[k] !== undefined ? toP[k] : 1.0;
         interpolated[k] = lerpParamLog(valFrom, valTo, progress);
       }
 
-      setParameters(interpolated);
+      // パラメータを更新
+      setParametersRef.current(interpolated);
 
       // 5秒サイクル完了時の処理
       if (progress >= 1.0) {
         // 到達時の効果音
         soundSystem.playParameterTick(620);
 
-        // 履歴に記録
+        // 履歴に自動記録
         const seed = Math.floor(Math.random() * 900000 + 100000).toString();
         const res = evaluateUniverse(interpolated, seed);
-        if (recordToHistory) {
-          recordToHistory(res, interpolated);
+        if (recordToHistoryRef.current) {
+          recordToHistoryRef.current(res, interpolated);
         }
 
-        // 次のプリセットをターゲットとして次の5秒サイクルを開始
+        // 次のプリセットへ移行
         const nextIdx = (presetIndexRef.current + 1) % UNIVERSE_PRESETS.length;
+        presetIndexRef.current = nextIdx;
+        setCurrentPresetIndex(nextIdx);
+
+        // 現在の補間完了値を新しい起点とする
         fromParamsRef.current = { ...interpolated };
-        setupNextPreset(nextIdx, false);
+        targetParamsRef.current = expandPresetParams(UNIVERSE_PRESETS[nextIdx].params);
+        cycleStartTimeRef.current = timestamp;
       }
 
       animFrameIdRef.current = requestAnimationFrame(animateTour);
     };
 
-    cycleStartTimeRef.current = performance.now();
     animFrameIdRef.current = requestAnimationFrame(animateTour);
 
     return () => {
@@ -150,17 +170,23 @@ export function useMultiverseTour(
         cancelAnimationFrame(animFrameIdRef.current);
         animFrameIdRef.current = null;
       }
+      isTourActiveRef.current = false;
     };
-  }, [isTourActive, setupNextPreset, setParameters, recordToHistory]);
+  }, [isTourActive]);
 
   const startTour = useCallback(() => {
     isTourActiveRef.current = true;
-    setIsTourActive(true);
-    fromParamsRef.current = { ...currentParameters };
+    // 開始点を現在のパラメータに設定
+    fromParamsRef.current = { ...currentParametersRef.current };
     const nextIdx = (presetIndexRef.current + 1) % UNIVERSE_PRESETS.length;
-    setupNextPreset(nextIdx, true);
+    presetIndexRef.current = nextIdx;
+    setCurrentPresetIndex(nextIdx);
+    targetParamsRef.current = expandPresetParams(UNIVERSE_PRESETS[nextIdx].params);
+    cycleStartTimeRef.current = performance.now();
+
+    setIsTourActive(true);
     soundSystem.playParameterTick(700);
-  }, [currentParameters, setupNextPreset]);
+  }, []);
 
   const stopTour = useCallback(() => {
     isTourActiveRef.current = false;
@@ -180,16 +206,26 @@ export function useMultiverseTour(
   }, [isTourActive, startTour, stopTour]);
 
   const skipNext = useCallback(() => {
+    // 現在のパラメータを起点として即座に次のターゲットを設定
+    fromParamsRef.current = { ...currentParametersRef.current };
     const nextIdx = (presetIndexRef.current + 1) % UNIVERSE_PRESETS.length;
-    setupNextPreset(nextIdx, true);
+    setupPresetTarget(nextIdx);
     soundSystem.playParameterTick(750);
-  }, [setupNextPreset]);
+  }, [setupPresetTarget]);
 
   const skipPrev = useCallback(() => {
+    fromParamsRef.current = { ...currentParametersRef.current };
     const prevIdx = (presetIndexRef.current - 1 + UNIVERSE_PRESETS.length) % UNIVERSE_PRESETS.length;
-    setupNextPreset(prevIdx, true);
+    setupPresetTarget(prevIdx);
     soundSystem.playParameterTick(500);
-  }, [setupNextPreset]);
+  }, [setupPresetTarget]);
+
+  // 手動でパラメータが変更された場合は起点を更新
+  useEffect(() => {
+    if (!isTourActive) {
+      currentParametersRef.current = currentParameters;
+    }
+  }, [currentParameters, isTourActive]);
 
   return {
     isTourActive,

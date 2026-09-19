@@ -236,124 +236,454 @@ export const CosmicCanvas3D: React.FC<CosmicCanvas3DProps> = ({
       type: THREE.HalfFloatType // HDRハイダイナミックレンジ
     });
 
-    // 4. 75,000個のメガスケールGPU星・超銀河団パーティクル
-    const starCount = 75000;
+    // 4. 120,000個のメガスケールGPU星・28個以上の多彩な銀河・超銀河団
+    const starCount = 120000;
     const positions = new Float32Array(starCount * 3);
+    const localPositions = new Float32Array(starCount * 3);
+    const galaxyCenters = new Float32Array(starCount * 3);
     const colors = new Float32Array(starCount * 3);
     const sizes = new Float32Array(starCount);
     const clusterTypes = new Float32Array(starCount);
+    const spinSpeeds = new Float32Array(starCount);
     const orbitSpeeds = new Float32Array(starCount);
-    const originalRadii = new Float32Array(starCount);
-    const originalAngles = new Float32Array(starCount);
-    const heights = new Float32Array(starCount);
 
     const starTexture = createStarTexture();
 
-    const satelliteCenters = [
-      { r: 210, angle: 0.8, y: 35, size: 28 },
-      { r: 260, angle: 2.4, y: -45, size: 35 },
-      { r: 190, angle: 4.1, y: 20, size: 22 },
-      { r: 290, angle: 5.3, y: -30, size: 40 },
-      { r: 330, angle: 3.5, y: 60, size: 30 }
+    // 3Dオイラー回転ヘルパー (pitch, roll, yaw)
+    const rotateLocal = (x: number, y: number, z: number, pitch: number, roll: number, yaw: number): [number, number, number] => {
+      // yaw (Y軸)
+      const cy = Math.cos(yaw), sy = Math.sin(yaw);
+      const x1 = x * cy + z * sy;
+      const z1 = -x * sy + z * cy;
+      const y1 = y;
+      // pitch (X軸)
+      const cp = Math.cos(pitch), sp = Math.sin(pitch);
+      const y2 = y1 * cp - z1 * sp;
+      const z2 = y1 * sp + z1 * cp;
+      const x2 = x1;
+      // roll (Z軸)
+      const cr = Math.cos(roll), sr = Math.sin(roll);
+      const x3 = x2 * cr - y2 * sr;
+      const y3 = x2 * sr + y2 * cr;
+      const z3 = z2;
+      return [x3, y3, z3];
+    };
+
+    let starIdx = 0;
+    const addStar = (
+      lx: number, ly: number, lz: number,
+      cx: number, cy: number, cz: number,
+      cr: number, cg: number, cb: number,
+      size: number,
+      spinSpeed: number,
+      orbitSpeed: number,
+      clusterType: number
+    ) => {
+      if (starIdx >= starCount) return;
+      localPositions[starIdx * 3] = lx;
+      localPositions[starIdx * 3 + 1] = ly;
+      localPositions[starIdx * 3 + 2] = lz;
+
+      galaxyCenters[starIdx * 3] = cx;
+      galaxyCenters[starIdx * 3 + 1] = cy;
+      galaxyCenters[starIdx * 3 + 2] = cz;
+
+      positions[starIdx * 3] = cx + lx;
+      positions[starIdx * 3 + 1] = cy + ly;
+      positions[starIdx * 3 + 2] = cz + lz;
+
+      colors[starIdx * 3] = cr;
+      colors[starIdx * 3 + 1] = cg;
+      colors[starIdx * 3 + 2] = cb;
+
+      sizes[starIdx] = size;
+      spinSpeeds[starIdx] = spinSpeed;
+      orbitSpeeds[starIdx] = orbitSpeed;
+      clusterTypes[starIdx] = clusterType;
+
+      starIdx++;
+    };
+
+    // -------------------------------------------------------------
+    // [1] 主銀河 (The Central Milky-Way Grand Spiral) - 35,000星
+    // -------------------------------------------------------------
+    // (A) 高密度中心バルジ (8,000星)
+    for (let i = 0; i < 8000; i++) {
+      const r = Math.pow(Math.random(), 2.2) * 26 + 1.5;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.5) * Math.PI * 0.7;
+      const lx = r * Math.cos(phi) * Math.cos(theta);
+      const ly = r * Math.sin(phi) * 0.45;
+      const lz = r * Math.cos(phi) * Math.sin(theta);
+      const size = Math.random() * 2.8 + 2.0;
+      addStar(lx, ly, lz, 0, 0, 0, 1.0, 0.86, 0.58, size, 1.0, 0.0, 0.0);
+    }
+    // (B) 4本の対数螺旋腕 (27,000星)
+    for (let i = 0; i < 27000; i++) {
+      const arm = i % 4;
+      const armOffset = (arm * Math.PI * 2) / 4;
+      const r = Math.pow(Math.random(), 1.7) * 135 + 12;
+      const angle = r * 0.085 + armOffset + (Math.random() - 0.5) * 0.55;
+      const lx = Math.cos(angle) * r;
+      const lz = Math.sin(angle) * r;
+      const ly = (Math.random() - 0.5) * (14 - (r / 135) * 10);
+      const size = Math.random() * 2.6 + 1.8;
+      const rnd = Math.random();
+      let cr = 0.55, cg = 0.82, cb = 1.0;
+      if (rnd > 0.85) {
+        cr = 1.0; cg = 0.45; cb = 0.7; // HII 星形成ピンク
+      } else if (rnd > 0.35) {
+        cr = 0.6; cg = 0.85; cb = 1.0; // 若い青色巨星
+      } else {
+        cr = 0.95; cg = 0.92; cb = 0.7; // 中間色星
+      }
+      addStar(lx, ly, lz, 0, 0, 0, cr, cg, cb, size, 1.0, 0.0, 0.0);
+    }
+
+    // -------------------------------------------------------------
+    // [2] アンドロメダ型大型傾斜渦巻銀河 (Andromeda / M31) - 14,000星
+    // -------------------------------------------------------------
+    const andromedaCenter: [number, number, number] = [-170, 45, 120];
+    const andPitch = 0.6, andRoll = 0.4, andYaw = 0.3;
+    // バルジ (3,500星)
+    for (let i = 0; i < 3500; i++) {
+      const r = Math.pow(Math.random(), 2.0) * 18 + 1.2;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.5) * Math.PI * 0.6;
+      const [lx, ly, lz] = rotateLocal(
+        r * Math.cos(phi) * Math.cos(theta),
+        r * Math.sin(phi) * 0.5,
+        r * Math.cos(phi) * Math.sin(theta),
+        andPitch, andRoll, andYaw
+      );
+      addStar(lx, ly, lz, andromedaCenter[0], andromedaCenter[1], andromedaCenter[2], 1.0, 0.9, 0.72, Math.random() * 2.5 + 2.0, 0.85, 0.75, 1.0);
+    }
+    // 2本腕 (10,500星)
+    for (let i = 0; i < 10500; i++) {
+      const arm = i % 2;
+      const armOffset = arm * Math.PI;
+      const r = Math.pow(Math.random(), 1.6) * 65 + 10;
+      const angle = r * 0.12 + armOffset + (Math.random() - 0.5) * 0.5;
+      const [lx, ly, lz] = rotateLocal(
+        Math.cos(angle) * r,
+        (Math.random() - 0.5) * 6,
+        Math.sin(angle) * r,
+        andPitch, andRoll, andYaw
+      );
+      addStar(lx, ly, lz, andromedaCenter[0], andromedaCenter[1], andromedaCenter[2], 0.6, 0.85, 1.0, Math.random() * 2.4 + 1.6, 0.85, 0.75, 1.0);
+    }
+
+    // -------------------------------------------------------------
+    // [3] ソンブレロ型エッジオン銀河 (Sombrero / M104) - 10,000星
+    // -------------------------------------------------------------
+    const sombreroCenter: [number, number, number] = [185, -40, -115];
+    const somPitch = 1.45, somRoll = 0.15, somYaw = -0.5;
+    // 巨大球状バルジ (4,500星)
+    for (let i = 0; i < 4500; i++) {
+      const r = Math.pow(Math.random(), 2.0) * 24 + 1.5;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.5) * Math.PI;
+      const [lx, ly, lz] = rotateLocal(
+        r * Math.cos(phi) * Math.cos(theta),
+        r * Math.sin(phi) * 0.65,
+        r * Math.cos(phi) * Math.sin(theta),
+        somPitch, somRoll, somYaw
+      );
+      addStar(lx, ly, lz, sombreroCenter[0], sombreroCenter[1], sombreroCenter[2], 1.0, 0.82, 0.5, Math.random() * 2.8 + 1.8, 1.2, 0.65, 1.0);
+    }
+    // 高密度エッジオン円盤 (5,500星)
+    for (let i = 0; i < 5500; i++) {
+      const r = Math.pow(Math.random(), 1.4) * 58 + 8;
+      const theta = Math.random() * Math.PI * 2;
+      const [lx, ly, lz] = rotateLocal(
+        Math.cos(theta) * r,
+        (Math.random() - 0.5) * 3.5,
+        Math.sin(theta) * r,
+        somPitch, somRoll, somYaw
+      );
+      addStar(lx, ly, lz, sombreroCenter[0], sombreroCenter[1], sombreroCenter[2], 0.9, 0.92, 1.0, Math.random() * 2.2 + 1.5, 1.2, 0.65, 1.0);
+    }
+
+    // -------------------------------------------------------------
+    // [4] 車輪銀河 (Cartwheel Ring Galaxy) - 8,000星
+    // -------------------------------------------------------------
+    const cartwheelCenter: [number, number, number] = [-95, 85, -175];
+    const cwPitch = 0.45, cwRoll = -0.5, cwYaw = 0.2;
+    // (A) 鮮烈な青色衝突外環 (5,200星)
+    for (let i = 0; i < 5200; i++) {
+      const ringR = 34 + (Math.random() - 0.5) * 8.5;
+      const theta = Math.random() * Math.PI * 2;
+      const [lx, ly, lz] = rotateLocal(
+        Math.cos(theta) * ringR,
+        (Math.random() - 0.5) * 4.0,
+        Math.sin(theta) * ringR,
+        cwPitch, cwRoll, cwYaw
+      );
+      addStar(lx, ly, lz, cartwheelCenter[0], cartwheelCenter[1], cartwheelCenter[2], 0.45, 0.88, 1.0, Math.random() * 3.0 + 2.0, 0.95, 0.7, 1.0);
+    }
+    // (B) 中心核 (1,400星)
+    for (let i = 0; i < 1400; i++) {
+      const r = Math.pow(Math.random(), 2.0) * 11 + 1.0;
+      const theta = Math.random() * Math.PI * 2;
+      const [lx, ly, lz] = rotateLocal(
+        Math.cos(theta) * r,
+        (Math.random() - 0.5) * 5.0,
+        Math.sin(theta) * r,
+        cwPitch, cwRoll, cwYaw
+      );
+      addStar(lx, ly, lz, cartwheelCenter[0], cartwheelCenter[1], cartwheelCenter[2], 1.0, 0.8, 0.4, Math.random() * 2.6 + 1.8, 0.95, 0.7, 1.0);
+    }
+    // (C) 4本のスポーク (1,400星)
+    for (let i = 0; i < 1400; i++) {
+      const spoke = i % 4;
+      const spokeAngle = (spoke * Math.PI * 2) / 4 + (Math.random() - 0.5) * 0.15;
+      const dist = Math.random() * 26 + 9;
+      const [lx, ly, lz] = rotateLocal(
+        Math.cos(spokeAngle) * dist + (Math.random() - 0.5) * 2.0,
+        (Math.random() - 0.5) * 3.0,
+        Math.sin(spokeAngle) * dist + (Math.random() - 0.5) * 2.0,
+        cwPitch, cwRoll, cwYaw
+      );
+      addStar(lx, ly, lz, cartwheelCenter[0], cartwheelCenter[1], cartwheelCenter[2], 0.7, 0.85, 1.0, Math.random() * 2.2 + 1.5, 0.95, 0.7, 1.0);
+    }
+
+    // -------------------------------------------------------------
+    // [5] 触角銀河 (The Antennae Galaxies NGC 4038/4039 ペア) - 12,000星
+    // -------------------------------------------------------------
+    const antACenter: [number, number, number] = [135, 60, 140];
+    const antBCenter: [number, number, number] = [155, 42, 155];
+    // 核A (4,500星)
+    for (let i = 0; i < 4500; i++) {
+      const r = Math.pow(Math.random(), 1.8) * 24 + 1.0;
+      const theta = Math.random() * Math.PI * 2;
+      const [lx, ly, lz] = rotateLocal(
+        Math.cos(theta) * r,
+        (Math.random() - 0.5) * (7 - r * 0.15),
+        Math.sin(theta) * r,
+        0.4, 0.3, 0.5
+      );
+      const isBurst = Math.random() > 0.5;
+      const cr = isBurst ? 1.0 : 0.85;
+      const cg = isBurst ? 0.38 : 0.75;
+      const cb = isBurst ? 0.75 : 1.0;
+      addStar(lx, ly, lz, antACenter[0], antACenter[1], antACenter[2], cr, cg, cb, Math.random() * 2.8 + 1.8, 1.1, 0.55, 1.0);
+    }
+    // 核B (4,500星)
+    for (let i = 0; i < 4500; i++) {
+      const r = Math.pow(Math.random(), 1.8) * 22 + 1.0;
+      const theta = Math.random() * Math.PI * 2;
+      const [lx, ly, lz] = rotateLocal(
+        Math.cos(theta) * r,
+        (Math.random() - 0.5) * (6 - r * 0.15),
+        Math.sin(theta) * r,
+        -0.5, -0.2, -0.4
+      );
+      const isBurst = Math.random() > 0.5;
+      const cr = isBurst ? 0.4 : 1.0;
+      const cg = isBurst ? 0.88 : 0.85;
+      const cb = isBurst ? 1.0 : 0.5;
+      addStar(lx, ly, lz, antBCenter[0], antBCenter[1], antBCenter[2], cr, cg, cb, Math.random() * 2.8 + 1.8, -1.0, 0.55, 1.0);
+    }
+    // 潮汐テイル (3,000星)
+    for (let i = 0; i < 3000; i++) {
+      const tailIndex = i % 2;
+      const t = Math.random();
+      const length = t * 75 + 10;
+      let lx = 0, ly = 0, lz = 0;
+      let cx = antACenter[0], cy = antACenter[1], cz = antACenter[2];
+      if (tailIndex === 0) {
+        // テイル1: 核Aから外側へアーチ状に伸びる
+        lx = -Math.cos(t * 1.8) * length;
+        ly = Math.sin(t * 1.8) * (length * 0.6) + (Math.random() - 0.5) * 4.0;
+        lz = (t * 40) + (Math.random() - 0.5) * 4.0;
+      } else {
+        // テイル2: 核Bから反対側へアーチ状に伸びる
+        cx = antBCenter[0]; cy = antBCenter[1]; cz = antBCenter[2];
+        lx = Math.cos(t * 1.8) * length;
+        ly = -Math.sin(t * 1.8) * (length * 0.55) + (Math.random() - 0.5) * 4.0;
+        lz = -(t * 45) + (Math.random() - 0.5) * 4.0;
+      }
+      addStar(lx, ly, lz, cx, cy, cz, 0.6, 0.82, 1.0, Math.random() * 2.5 + 1.6, 0.4, 0.55, 1.0);
+    }
+
+    // -------------------------------------------------------------
+    // [6] 大棒渦巻銀河 (Grand Barred Spiral - NGC 1300型) - 9,000星
+    // -------------------------------------------------------------
+    const barredCenter: [number, number, number] = [-210, -55, 85];
+    const barPitch = -0.4, barRoll = 0.6, barYaw = 0.8;
+    // 中央棒構造 (3,500星)
+    for (let i = 0; i < 3500; i++) {
+      const barLen = (Math.random() - 0.5) * 46;
+      const barWidth = (Math.random() - 0.5) * 8.5;
+      const [lx, ly, lz] = rotateLocal(
+        barLen,
+        (Math.random() - 0.5) * 4.5,
+        barWidth,
+        barPitch, barRoll, barYaw
+      );
+      addStar(lx, ly, lz, barredCenter[0], barredCenter[1], barredCenter[2], 1.0, 0.88, 0.55, Math.random() * 2.6 + 1.8, 1.0, 0.5, 1.0);
+    }
+    // 棒の両端から伸びる2本腕 (5,500星)
+    for (let i = 0; i < 5500; i++) {
+      const arm = i % 2;
+      const side = arm === 0 ? 1 : -1;
+      const t = Math.pow(Math.random(), 1.4) * 42 + 2;
+      const startX = side * 23;
+      const startZ = 0;
+      const angle = (t * 0.085) * side;
+      const armX = startX + Math.sin(angle) * t * side;
+      const armZ = startZ + (1 - Math.cos(angle)) * t * side * 1.3;
+      const [lx, ly, lz] = rotateLocal(
+        armX,
+        (Math.random() - 0.5) * 4.0,
+        armZ,
+        barPitch, barRoll, barYaw
+      );
+      addStar(lx, ly, lz, barredCenter[0], barredCenter[1], barredCenter[2], 0.5, 0.8, 1.0, Math.random() * 2.4 + 1.6, 1.0, 0.5, 1.0);
+    }
+
+    // -------------------------------------------------------------
+    // [7] 超巨大楕円銀河 (Giant Elliptical - M87型) - 8,000星
+    // -------------------------------------------------------------
+    const ellipCenter: [number, number, number] = [75, -110, 205];
+    for (let i = 0; i < 8000; i++) {
+      const r = Math.pow(Math.random(), 2.4) * 52 + 1.5;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.5) * Math.PI;
+      const lx = r * Math.cos(phi) * Math.cos(theta) * 1.15;
+      const ly = r * Math.sin(phi) * 0.75;
+      const lz = r * Math.cos(phi) * Math.sin(theta) * 0.95;
+      const size = Math.random() * 2.7 + 1.8;
+      addStar(lx, ly, lz, ellipCenter[0], ellipCenter[1], ellipCenter[2], 1.0, 0.76, 0.46, size, 0.3, 0.45, 1.0);
+    }
+
+    // -------------------------------------------------------------
+    // [8] 大マゼラン雲 & 小マゼラン雲 (Magellanic Clouds ペア) - 7,000星
+    // -------------------------------------------------------------
+    const lmcCenter: [number, number, number] = [-115, -52, -85];
+    const smcCenter: [number, number, number] = [-150, -72, -65];
+    // LMC (4,500星)
+    for (let i = 0; i < 4500; i++) {
+      const r = Math.pow(Math.random(), 1.5) * 32 + 1.0;
+      const angle = Math.random() * Math.PI * 2;
+      const lx = Math.cos(angle) * r * 1.3 + (Math.random() - 0.5) * 8.0;
+      const ly = (Math.random() - 0.5) * 12.0;
+      const lz = Math.sin(angle) * r + (Math.random() - 0.5) * 8.0;
+      addStar(lx, ly, lz, lmcCenter[0], lmcCenter[1], lmcCenter[2], 0.6, 0.85, 1.0, Math.random() * 2.4 + 1.6, 0.65, 0.9, 1.0);
+    }
+    // SMC (2,500星)
+    for (let i = 0; i < 2500; i++) {
+      const r = Math.pow(Math.random(), 1.6) * 20 + 1.0;
+      const angle = Math.random() * Math.PI * 2;
+      const lx = Math.cos(angle) * r;
+      const ly = (Math.random() - 0.5) * 9.0;
+      const lz = Math.sin(angle) * r * 1.4;
+      addStar(lx, ly, lz, smcCenter[0], smcCenter[1], smcCenter[2], 0.75, 0.88, 1.0, Math.random() * 2.2 + 1.5, 0.75, 0.9, 1.0);
+    }
+
+    // -------------------------------------------------------------
+    // [9] 周囲の多彩な矮小銀河群 (8個の個性的な銀河・星団) - 8,000星
+    // -------------------------------------------------------------
+    const dwarfGalaxies = [
+      { pos: [-140, 110, 50], color: [0.35, 0.95, 1.0], radius: 18, spin: 1.1, name: '青色コンパクト銀河' },
+      { pos: [160, 95, -70], color: [1.0, 0.45, 0.45], radius: 19, spin: 0.8, name: '赤色矮小楕円銀河' },
+      { pos: [-60, -90, 180], color: [0.45, 1.0, 0.75], radius: 22, spin: 1.2, name: 'エメラルド小渦巻' },
+      { pos: [110, -80, -160], color: [0.85, 0.55, 1.0], radius: 16, spin: 0.9, name: 'バイオレット極小リング' },
+      { pos: [-190, 30, -100], color: [0.55, 0.8, 1.0], radius: 20, spin: 0.7, name: 'サファイア不規則銀河' },
+      { pos: [80, 120, 130], color: [1.0, 0.9, 0.55], radius: 15, spin: 0.5, name: '球状超星団' },
+      { pos: [-130, -120, -40], color: [1.0, 0.7, 0.35], radius: 18, spin: 1.0, name: 'トパーズレンズ状銀河' },
+      { pos: [190, 20, 90], color: [0.4, 0.88, 1.0], radius: 17, spin: 1.3, name: '超コンパクト矮小銀河' }
     ];
 
-    for (let i = 0; i < starCount; i++) {
-      let r = 0;
-      let angle = 0;
-      let y = 0;
-      let size = 2.5;
-      let clusterType = 0.0;
-      let speed = 1.0;
-      let cr = 1.0;
-      let cg = 1.0;
-      let cb = 1.0;
+    for (let d = 0; d < dwarfGalaxies.length; d++) {
+      const dg = dwarfGalaxies[d];
+      for (let i = 0; i < 1000; i++) {
+        const r = Math.pow(Math.random(), 1.7) * dg.radius + 1.0;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = (Math.random() - 0.5) * Math.PI * 0.7;
+        const lx = r * Math.cos(phi) * Math.cos(theta);
+        const ly = r * Math.sin(phi) * 0.55;
+        const lz = r * Math.cos(phi) * Math.sin(theta);
+        addStar(
+          lx, ly, lz,
+          dg.pos[0], dg.pos[1], dg.pos[2],
+          dg.color[0], dg.color[1], dg.color[2],
+          Math.random() * 2.4 + 1.6,
+          dg.spin, 0.75, 1.0
+        );
+      }
+    }
 
-      if (i < 38000) {
-        // [A] 主渦巻銀河 (38,000星)
-        clusterType = 0.0;
-        const armIndex = i % 4;
-        const angleOffset = (armIndex * 2 * Math.PI) / 4;
-        r = Math.pow(Math.random(), 1.8) * 145 + 5.5;
-        angle = r * 0.075 + angleOffset + (Math.random() - 0.5) * 0.6;
-        y = (Math.random() - 0.5) * (18 - (r / 145) * 12);
-        size = Math.random() * 2.8 + 2.0;
+    // -------------------------------------------------------------
+    // [10] 深宇宙ディープフィールド超銀河団 (Hubble/JWST Deep Field) - 9,000星
+    // -------------------------------------------------------------
+    const deepFieldCores = [
+      [-420, 180, 320], [380, -210, 390], [-310, -290, -410], [450, 260, -320],
+      [520, -120, -280], [-480, -150, 350], [220, 380, 420], [-250, 410, -360],
+      [360, -380, -180], [-550, 90, -220], [180, -450, 290], [-390, 270, -450],
+      [490, 140, 380], [-190, -420, -480], [540, -280, 190]
+    ];
 
-        const rnd = Math.random();
-        if (rnd > 0.85) {
-          cr = 0.55; cg = 0.78; cb = 1.0;
-        } else if (rnd > 0.35) {
-          cr = 1.0; cg = 0.9; cb = 0.6;
-        } else {
-          cr = 1.0; cg = 0.45; cb = 0.28;
-        }
-      } else if (i < 53000) {
-        // [B] 伴銀河・衛星星団 (15,000星)
-        clusterType = 1.0;
-        const sat = satelliteCenters[i % satelliteCenters.length];
-        const subAngle = Math.random() * Math.PI * 2;
-        const subR = Math.pow(Math.random(), 1.5) * sat.size;
-        
-        const cx = Math.cos(sat.angle) * sat.r;
-        const cz = Math.sin(sat.angle) * sat.r;
-        const sx = cx + Math.cos(subAngle) * subR;
-        const sz = cz + Math.sin(subAngle) * subR;
-
-        r = Math.sqrt(sx * sx + sz * sz);
-        angle = Math.atan2(sz, sx);
-        y = sat.y + (Math.random() - 0.5) * 12;
-        size = Math.random() * 2.2 + 1.6;
-        speed = 0.6 / (Math.sqrt(sat.r) * 0.1);
-
-        cr = 0.75; cg = 0.85; cb = 1.0;
+    for (let c = 0; c < deepFieldCores.length; c++) {
+      const core = deepFieldCores[c];
+      const starsPerCore = 600;
+      const coreColorType = c % 4;
+      let cr = 1.0, cg = 0.8, cb = 0.5;
+      if (coreColorType === 0) {
+        cr = 1.0; cg = 0.55; cb = 0.35; // 高赤方偏移・遠方赤色銀河
+      } else if (coreColorType === 1) {
+        cr = 0.65; cg = 0.85; cb = 1.0; // クエーサー・青色高光度核
+      } else if (coreColorType === 2) {
+        cr = 1.0; cg = 0.45; cb = 0.65; // 深宇宙スターバースト
       } else {
-        // [C] 超銀河団・コズミックウェブ深宇宙銀河 (22,000個)
-        clusterType = 2.0;
-        const filamentBranch = i % 8;
-        const baseAngle = (filamentBranch * 2 * Math.PI) / 8;
-        const distFromCenter = Math.pow(Math.random(), 1.2) * 750 + 150;
-        const meander = Math.sin(distFromCenter * 0.02) * 0.5;
-        angle = baseAngle + meander + (Math.random() - 0.5) * 0.45;
-        r = distFromCenter;
-        y = (Math.random() - 0.5) * (120 + (distFromCenter / 750) * 160);
-        size = Math.random() * 3.5 + 2.5;
-        speed = (Math.random() - 0.5) * 0.2;
-
-        const galType = Math.random();
-        if (galType > 0.7) {
-          cr = 0.45; cg = 0.7; cb = 1.0;
-        } else if (galType > 0.3) {
-          cr = 1.0; cg = 0.8; cb = 0.45;
-        } else {
-          cr = 0.95; cg = 0.35; cb = 0.6;
-        }
+        cr = 1.0; cg = 0.92; cb = 0.75; // 遠方巨大楕円銀河
       }
 
-      positions[i * 3] = Math.cos(angle) * r;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = Math.sin(angle) * r;
+      for (let i = 0; i < starsPerCore; i++) {
+        const r = Math.pow(Math.random(), 2.0) * 35 + 1.5;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = (Math.random() - 0.5) * Math.PI;
+        const lx = r * Math.cos(phi) * Math.cos(theta);
+        const ly = r * Math.sin(phi) * 0.7;
+        const lz = r * Math.cos(phi) * Math.sin(theta);
+        addStar(
+          lx, ly, lz,
+          core[0], core[1], core[2],
+          cr, cg, cb,
+          Math.random() * 3.2 + 2.2,
+          (Math.random() - 0.5) * 0.6,
+          (Math.random() - 0.5) * 0.25,
+          2.0
+        );
+      }
+    }
 
-      originalRadii[i] = r;
-      originalAngles[i] = angle;
-      heights[i] = y;
-
-      colors[i * 3] = cr;
-      colors[i * 3 + 1] = cg;
-      colors[i * 3 + 2] = cb;
-
-      sizes[i] = size;
-      clusterTypes[i] = clusterType;
-      orbitSpeeds[i] = speed;
+    // 残りのスロットをディープフィールド背景星で埋める
+    while (starIdx < starCount) {
+      const dist = Math.random() * 650 + 250;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.5) * Math.PI;
+      const cx = dist * Math.cos(phi) * Math.cos(theta);
+      const cy = dist * Math.sin(phi);
+      const cz = dist * Math.cos(phi) * Math.sin(theta);
+      addStar(
+        0, 0, 0,
+        cx, cy, cz,
+        0.8, 0.85, 1.0,
+        Math.random() * 2.0 + 1.2,
+        0.0, 0.1, 2.0
+      );
     }
 
     const starGeometry = new THREE.BufferGeometry();
     starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    starGeometry.setAttribute('aLocalPos', new THREE.BufferAttribute(localPositions, 3));
+    starGeometry.setAttribute('aGalaxyCenter', new THREE.BufferAttribute(galaxyCenters, 3));
     starGeometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
     starGeometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
-    starGeometry.setAttribute('aClusterType', new THREE.BufferAttribute(clusterTypes, 1));
+    starGeometry.setAttribute('aSpinSpeed', new THREE.BufferAttribute(spinSpeeds, 1));
     starGeometry.setAttribute('aOrbitSpeed', new THREE.BufferAttribute(orbitSpeeds, 1));
-    starGeometry.setAttribute('aOriginalRadius', new THREE.BufferAttribute(originalRadii, 1));
-    starGeometry.setAttribute('aOriginalAngle', new THREE.BufferAttribute(originalAngles, 1));
-    starGeometry.setAttribute('aHeight', new THREE.BufferAttribute(heights, 1));
+    starGeometry.setAttribute('aClusterType', new THREE.BufferAttribute(clusterTypes, 1));
 
     const starMaterial = new THREE.ShaderMaterial({
       vertexShader: cosmicStarVertexShader,
