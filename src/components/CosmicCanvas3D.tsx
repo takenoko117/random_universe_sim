@@ -11,6 +11,7 @@ import {
 } from '../shaders/interstellarLensingShader';
 import { 
   Maximize2, 
+  Minimize2,
   ZoomIn, 
   ZoomOut, 
   Layers, 
@@ -18,12 +19,19 @@ import {
   Pause, 
   Compass, 
   Orbit,
-  CircleDot
+  CircleDot,
+  Radio,
+  SkipForward,
+  Timer
 } from 'lucide-react';
+import type { MultiverseTourState } from '../hooks/useMultiverseTour';
 
 interface CosmicCanvas3DProps {
   simulation: UniverseSimulationResult;
   parameters: ParameterValues;
+  tourState?: MultiverseTourState;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
 /**
@@ -48,10 +56,21 @@ function createStarTexture(): THREE.Texture {
   return texture;
 }
 
-export const CosmicCanvas3D: React.FC<CosmicCanvas3DProps> = ({ simulation, parameters }) => {
+export const CosmicCanvas3D: React.FC<CosmicCanvas3DProps> = ({ 
+  simulation, 
+  parameters,
+  tourState,
+  isFullscreen: isExternalFullscreen,
+  onToggleFullscreen
+}) => {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const parametersRef = useRef<ParameterValues>(parameters);
   const simulationRef = useRef<UniverseSimulationResult>(simulation);
+
+  // フルスクリーン状態 (外部制御または内部制御)
+  const [localFullscreen, setLocalFullscreen] = useState(false);
+  const isFullscreen = isExternalFullscreen !== undefined ? isExternalFullscreen : localFullscreen;
 
   // コントロールステート
   const [isPlaying, setIsPlaying] = useState(true);
@@ -74,6 +93,68 @@ export const CosmicCanvas3D: React.FC<CosmicCanvas3DProps> = ({ simulation, para
     parametersRef.current = parameters;
     simulationRef.current = simulation;
   }, [parameters, simulation]);
+
+  // フルスクリーン操作ハンドラ
+  const handleEnterFullscreen = async () => {
+    setLocalFullscreen(true);
+    if (onToggleFullscreen && !isExternalFullscreen) onToggleFullscreen();
+    try {
+      if (wrapperRef.current && !document.fullscreenElement) {
+        await wrapperRef.current.requestFullscreen();
+      }
+    } catch {
+      // ブラウザ制限等時はCSSベース全画面で動作
+    }
+  };
+
+  const handleExitFullscreen = async () => {
+    setLocalFullscreen(false);
+    if (onToggleFullscreen && isExternalFullscreen) onToggleFullscreen();
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleFullscreen = () => {
+    if (isFullscreen) {
+      handleExitFullscreen();
+    } else {
+      handleEnterFullscreen();
+    }
+  };
+
+  // キーボードショートカット (ESC で解除, F で全画面切り替え)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)) return;
+
+      if (e.key === 'Escape' && isFullscreen) {
+        handleExitFullscreen();
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
+
+  // ブラウザのネイティブ全画面変更イベントの監視
+  useEffect(() => {
+    const onFsChange = () => {
+      const isDocFs = !!document.fullscreenElement;
+      if (!isDocFs && isFullscreen) {
+        setLocalFullscreen(false);
+        if (onToggleFullscreen && isExternalFullscreen) onToggleFullscreen();
+      }
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, [isFullscreen, isExternalFullscreen, onToggleFullscreen]);
 
   // Three.js シーン・レンダーターゲット参照
   const sceneRef = useRef<{
@@ -596,29 +677,100 @@ export const CosmicCanvas3D: React.FC<CosmicCanvas3DProps> = ({ simulation, para
   }, [showSpacetimeGrid, showCosmicWeb, showBlackHoleLens]);
 
   return (
-    <div className="relative w-full h-full min-h-[460px] rounded-2xl overflow-hidden bg-gradient-to-b from-gray-950 via-slate-950 to-gray-950 border border-slate-800/80 shadow-2xl group select-none">
-      <div ref={mountRef} className="w-full h-full min-h-[460px] cursor-grab active:cursor-grabbing" />
+    <div
+      ref={wrapperRef}
+      className={`select-none transition-all duration-300 ${
+        isFullscreen
+          ? 'fixed inset-0 z-50 w-screen h-screen bg-slate-950 flex flex-col rounded-none border-none shadow-none overflow-hidden'
+          : 'relative w-full h-full min-h-[460px] rounded-2xl overflow-hidden bg-gradient-to-b from-gray-950 via-slate-950 to-gray-950 border border-slate-800/80 shadow-2xl group'
+      }`}
+    >
+      <div
+        ref={mountRef}
+        className={`w-full h-full cursor-grab active:cursor-grabbing ${
+          isFullscreen ? 'flex-1 h-screen' : 'min-h-[460px]'
+        }`}
+      />
 
-      {/* 左上: 宇宙ステータス & スケールHUD */}
-      <div className="absolute top-3.5 left-3.5 pointer-events-none flex flex-col gap-1 z-10 bg-slate-950/85 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-slate-700/60 shadow-xl">
+      {/* 左上: 宇宙ステータス & スケールHUD & 5秒ツアー進行度 */}
+      <div className="absolute top-3.5 left-3.5 pointer-events-none flex flex-col gap-1.5 z-20 bg-slate-950/85 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-slate-700/60 shadow-xl max-w-sm">
         <div className="text-xs font-mono text-indigo-400 tracking-wider flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
-          INTERSTELLAR RELATIVISTIC LENSING (75,000 STARS)
+          SCHWARZSCHILD LENSING (75,000 STARS)
         </div>
         <div className="text-sm font-bold text-white flex items-center gap-2">
-          {simulation.name}
+          <span>{simulation.name}</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
+            simulation.rank === 'Type S' ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700/60' :
+            simulation.rank === 'Type A' ? 'bg-cyan-900/60 text-cyan-300 border border-cyan-700/60' :
+            simulation.rank === 'Type F' ? 'bg-rose-900/60 text-rose-300 border border-rose-700/60' :
+            'bg-amber-900/60 text-amber-300 border border-amber-700/60'
+          }`}>
+            {simulation.rank}
+          </span>
         </div>
-        <div className="text-[11px] text-indigo-300 font-mono">
+        <div className="text-[11px] text-indigo-300 font-mono line-clamp-1">
           {simulation.subtitle}
         </div>
-        <div className="mt-1 flex items-center gap-1.5 text-[10px] font-mono text-cyan-300 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40">
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-mono text-cyan-300 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40">
           <Orbit size={11} className="animate-spin text-cyan-400" />
           <span>スケール: {currentScaleText}</span>
         </div>
+
+        {/* 5秒自動遷移ツアー進行ゲージ */}
+        {tourState?.isTourActive && (
+          <div className="mt-1 pt-1.5 border-t border-slate-800/80">
+            <div className="flex items-center justify-between text-[10px] font-mono">
+              <span className="text-emerald-400 flex items-center gap-1">
+                <Timer size={11} className="animate-spin text-emerald-400" />
+                <span>自動遷移中 ({tourState.tourRemainingSeconds.toFixed(1)}s)</span>
+              </span>
+              <span className="text-slate-400 truncate max-w-[120px]" title={tourState.nextPresetName}>
+                ➔ {tourState.nextPresetName.split(' ')[0]}
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden mt-1 border border-slate-800">
+              <div
+                className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 transition-all duration-75"
+                style={{ width: `${Math.min(100, Math.max(0, tourState.tourProgress * 100))}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 右上: 視点プリセット & アニメーションコントロール */}
-      <div className="absolute top-3.5 right-3.5 flex flex-wrap items-center gap-1.5 z-10 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-slate-800 shadow-xl">
+      {/* 右上: 視点プリセット & アニメーションコントロール & ツアー & フルスクリーン */}
+      <div className="absolute top-3.5 right-3.5 flex flex-wrap items-center gap-1.5 z-20 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-slate-800 shadow-xl">
+        {/* 5秒自動遷移ツアートグル */}
+        {tourState && (
+          <>
+            <button
+              onClick={tourState.toggleTour}
+              className={`px-2.5 py-1 rounded-lg text-xs font-mono flex items-center gap-1.5 transition ${
+                tourState.isTourActive
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/80 shadow-md shadow-emerald-900/30'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+              }`}
+              title="5秒ごとにハイパーパラメータがシームレスにモーフィング移り行くツアーモード"
+            >
+              <Radio size={13} className={tourState.isTourActive ? 'animate-pulse text-emerald-400' : ''} />
+              <span>{tourState.isTourActive ? 'ツアー稼働中' : '5秒自動遷移'}</span>
+            </button>
+
+            {tourState.isTourActive && (
+              <button
+                onClick={tourState.skipNext}
+                className="p-1 text-slate-400 hover:text-slate-100 bg-slate-900 hover:bg-slate-800 rounded-lg border border-slate-800 transition"
+                title="次の宇宙へ即時スキップ"
+              >
+                <SkipForward size={13} />
+              </button>
+            )}
+
+            <div className="w-[1px] h-4 bg-slate-800 mx-0.5" />
+          </>
+        )}
+
         {/* 再生 / 一時停止 */}
         <button
           onClick={() => setIsPlaying(!isPlaying)}
@@ -696,10 +848,26 @@ export const CosmicCanvas3D: React.FC<CosmicCanvas3DProps> = ({ simulation, para
           <Maximize2 size={13} />
           超銀河団 (メガスケール)
         </button>
+
+        <div className="w-[1px] h-4 bg-slate-800 mx-0.5" />
+
+        {/* フルスクリーン切り替えボタン */}
+        <button
+          onClick={toggleFullscreen}
+          className={`px-2.5 py-1 text-xs font-mono rounded-lg transition flex items-center gap-1 ${
+            isFullscreen
+              ? 'bg-rose-950/90 text-rose-300 border border-rose-700/80 hover:bg-rose-900 shadow-lg'
+              : 'bg-indigo-950/80 text-indigo-300 border border-indigo-800/80 hover:bg-indigo-900 shadow'
+          }`}
+          title={isFullscreen ? 'フルスクリーン終了 (ESCまたはF)' : 'フルスクリーン最大化 (F)'}
+        >
+          {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          <span>{isFullscreen ? '全画面終了 (ESC)' : '全画面'}</span>
+        </button>
       </div>
 
       {/* 左下: レイヤートグルコントロール */}
-      <div className="absolute bottom-3 left-3.5 flex flex-wrap items-center gap-2 z-10 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-xs font-mono text-slate-300 shadow-lg">
+      <div className="absolute bottom-3 left-3.5 flex flex-wrap items-center gap-2 z-20 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-xs font-mono text-slate-300 shadow-lg">
         <span className="text-[10px] text-slate-500 uppercase tracking-wider flex items-center gap-1 mr-1">
           <Layers size={12} className="text-indigo-400" />
           LAYERS
@@ -733,9 +901,20 @@ export const CosmicCanvas3D: React.FC<CosmicCanvas3DProps> = ({ simulation, para
         </label>
       </div>
 
-      {/* 右下: 操作ガイド */}
-      <div className="absolute bottom-3 right-3.5 pointer-events-none text-[11px] font-mono text-slate-400 bg-slate-950/80 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-800">
-        🖱️ ドラッグで360°回転 / ホイールで超巨大ズーム (28〜950)
+      {/* 右下: 操作ガイド & フルスクリーン時クイックステータス */}
+      <div className="absolute bottom-3 right-3.5 pointer-events-none flex flex-col items-end gap-1.5 z-20">
+        {isFullscreen && (
+          <div className="text-xs font-mono text-slate-300 bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 shadow-xl flex items-center gap-2">
+            <span className="text-emerald-400 font-bold">スコア: {simulation.metrics.habitableScore}/100</span>
+            <span className="text-slate-600">|</span>
+            <span className="text-amber-300">
+              終末: {simulation.fate === 'heat_death' ? '熱的死' : simulation.fate === 'big_rip' ? 'ビッグリップ' : simulation.fate === 'big_crunch' ? 'ビッグクランチ' : simulation.fate}
+            </span>
+          </div>
+        )}
+        <div className="text-[11px] font-mono text-slate-400 bg-slate-950/80 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-800">
+          🖱️ ドラッグで360°回転 / ホイールで超巨大ズーム {isFullscreen ? ' / [ESC]で全画面解除' : ' / [F]で全画面'}
+        </div>
       </div>
     </div>
   );

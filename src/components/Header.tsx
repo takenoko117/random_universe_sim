@@ -13,18 +13,22 @@ import {
   Radio
 } from 'lucide-react';
 
+import type { MultiverseTourState } from '../hooks/useMultiverseTour';
+
 interface HeaderProps {
   currentTab: 'view' | 'lab' | 'archive';
   setCurrentTab: (tab: 'view' | 'lab' | 'archive') => void;
   onApplyPreset: (presetParams: Partial<ParameterValues>) => void;
   onResetAll: () => void;
+  tourState?: MultiverseTourState;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentTab,
   setCurrentTab,
   onApplyPreset,
-  onResetAll
+  onResetAll,
+  tourState
 }) => {
   const [isMuted, setIsMuted] = React.useState(soundSystem.getMuted());
   const [isAmbientOn, setIsAmbientOn] = React.useState(soundSystem.isAmbientOn());
@@ -103,6 +107,22 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* コントロール・プリセット */}
         <div className="flex items-center gap-2">
+          {/* 5秒自動遷移ツアーボタン */}
+          {tourState && (
+            <button
+              onClick={tourState.toggleTour}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-medium flex items-center gap-1.5 transition ${
+                tourState.isTourActive
+                  ? 'bg-emerald-950 text-emerald-300 border-emerald-700/80 shadow-md shadow-emerald-900/30'
+                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
+              }`}
+              title="5秒ごとに30大パラメータがシームレスに移り行く多元宇宙ツアー"
+            >
+              <Radio size={13} className={tourState.isTourActive ? 'animate-pulse text-emerald-400' : ''} />
+              <span>{tourState.isTourActive ? `ツアー中 (${tourState.tourRemainingSeconds.toFixed(1)}s)` : '5秒自動遷移'}</span>
+            </button>
+          )}
+
           {/* プリセット選択 */}
           <select
             onChange={(e) => {

@@ -12,12 +12,14 @@ import { ParameterSlider } from './components/ParameterSlider';
 import { UniverseDiagnostic } from './components/UniverseDiagnostic';
 import { MultiverseRoulette } from './components/MultiverseRoulette';
 import { ArchiveGallery, type SavedUniverse } from './components/ArchiveGallery';
-import { Eye, SlidersHorizontal } from 'lucide-react';
+import { Eye, SlidersHorizontal, Maximize2 } from 'lucide-react';
+import { useMultiverseTour } from './hooks/useMultiverseTour';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<'view' | 'lab' | 'archive'>('view');
   const [parameters, setParameters] = useState<ParameterValues>(DEFAULT_PARAMETERS);
   const [currentSeed, setCurrentSeed] = useState<string>('994821');
+  const [isMacroFullscreen, setIsMacroFullscreen] = useState<boolean>(false);
   const [history, setHistory] = useState<SavedUniverse[]>(() => {
     try {
       const saved = localStorage.getItem('multiverse_history');
@@ -94,6 +96,9 @@ export function App() {
     }
   }, []);
 
+  // 多元宇宙5秒シームレス自動遷移ツアーフック
+  const tourState = useMultiverseTour(parameters, setParameters, recordToHistory);
+
   // ガチャでの新宇宙生成
   const handleGenerateRoulette = (newParams: ParameterValues, seed: string) => {
     setParameters(newParams);
@@ -155,6 +160,7 @@ export function App() {
         setCurrentTab={setCurrentTab}
         onApplyPreset={handleApplyPreset}
         onResetAll={handleResetAll}
+        tourState={tourState}
       />
 
       {/* メインコンテンツ */}
@@ -202,6 +208,15 @@ export function App() {
                   >
                     ミクロ (原子核)
                   </button>
+                  <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+                  <button
+                    onClick={() => setIsMacroFullscreen(true)}
+                    className="px-2.5 py-1 text-xs font-mono rounded-lg transition flex items-center gap-1 text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/60 shadow"
+                    title="マクロ3D表示を全画面最大化 (F)"
+                  >
+                    <Maximize2 size={13} className="text-indigo-400" />
+                    <span>全画面 (F)</span>
+                  </button>
                 </div>
               </div>
 
@@ -209,7 +224,13 @@ export function App() {
               <div className={`grid gap-4 ${viewMode === 'split' ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1'}`}>
                 {(viewMode === 'split' || viewMode === 'macro') && (
                   <div className={viewMode === 'split' ? 'lg:col-span-2 h-[420px]' : 'h-[500px]'}>
-                    <CosmicCanvas3D simulation={simulation} parameters={parameters} />
+                    <CosmicCanvas3D 
+                      simulation={simulation} 
+                      parameters={parameters} 
+                      tourState={tourState}
+                      isFullscreen={isMacroFullscreen}
+                      onToggleFullscreen={() => setIsMacroFullscreen((prev) => !prev)}
+                    />
                   </div>
                 )}
 
@@ -277,7 +298,7 @@ export function App() {
 
               {/* リアルタイムミニプレビュー */}
               <div className="h-[210px]">
-                <CosmicCanvas3D simulation={simulation} parameters={parameters} />
+                <CosmicCanvas3D simulation={simulation} parameters={parameters} tourState={tourState} />
               </div>
             </div>
 
